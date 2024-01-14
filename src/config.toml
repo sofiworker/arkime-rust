@@ -1,0 +1,11 @@
+[net]
+filter = ""
+name = ["lo"]
+
+[services]
+host = "127.0.0.1"
+port = 8080
+
+[logging]
+level = "info"
+file = "arkime.log"
