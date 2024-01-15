@@ -1,11 +1,11 @@
 [net]
-filter = ""
-name = ["lo"]
+bpf_filter = ""
+link_name = ["lo"]
 
-[services]
+[service]
 host = "127.0.0.1"
 port = 8080
 
-[logging]
+[log]
 level = "info"
-file = "arkime.log"
+output = "arkime.log"
