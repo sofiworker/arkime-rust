@@ -10,7 +10,7 @@ pub mod service;
 pub mod log;
 
 #[tokio::main]
-fn main() {
+async fn main() {
     let config_path = String::from("src/config.toml");
     let mut config_file = File::open(config_path)
         .expect("can't open config file");
@@ -21,4 +21,5 @@ fn main() {
     let conf: conf::Config = toml::from_str(&contents).unwrap();
     println!("{:#?}", conf);
 
+    conf
 }

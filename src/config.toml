@@ -6,6 +6,10 @@ link_name = ["lo"]
 host = "127.0.0.1"
 port = 8080
 
+[core]
+hostname = ""
+
+
 [log]
 level = "info"
 output = "arkime.log"
