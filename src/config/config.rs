@@ -1,10 +1,4 @@
 use serde_derive::Deserialize;
-use lazy_static::lazy_static;
-use std::sync::Mutex;
-
-lazy_static! {
-    static ref INSTANCE: Mutex<Config> = Mutex::new(Config::new());
-}
 
 #[derive(Deserialize, Debug)]
 pub struct Config {
@@ -34,7 +28,11 @@ pub struct LogConfig {
 
 impl Config {
     fn new() -> Config {
-        
+      Config {
+        net: todo!(),
+        service: todo!(),
+        log: todo!(),
+    }
     }
 }
 
@@ -44,5 +42,9 @@ pub fn set_config(c: Config) {
 
 
 pub fn get_config() ->Config {
-
+    Config{
+        net: todo!(),
+        service: todo!(),
+        log: todo!(),
+    }
 }
