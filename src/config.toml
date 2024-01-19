@@ -9,7 +9,6 @@ port = 8080
 [core]
 hostname = ""
 
-
 [log]
 level = "info"
 output = "arkime.log"

@@ -1,52 +1,44 @@
-use config::config as conf;
-use signal_hook::{
-    consts::{SIGINT, SIGTERM},
-    iterator::Signals,
-};
 use std::{
-    fs::File,
     io::Read,
 };
 use toml;
+use ctrlc;
 
-pub mod config;
+#[cfg(linux)]
+use tokio::signal::unix::{signal, SignalKind};
+#[cfg(windows)]
+use tokio::signal::windows::{ctrl_c};
+
 pub mod core;
 pub mod log;
 pub mod plugins;
 pub mod service;
+pub mod route;
+mod filter;
+mod conf;
+mod cmd;
 
 #[tokio::main]
 async fn main() {
-    let config_path = String::from("src/config.toml");
-    let mut config_file = File::open(config_path).expect("can't open config file");
-    let mut contents = String::new();
-    config_file
-        .read_to_string(&mut contents)
-        .expect("read config to string failed");
-    let conf: conf::Config = toml::from_str(&contents).unwrap();
-    println!("{:#?}", conf);
+    conf::Config::get();
 
-    
+    tokio::spawn(async {
+        init_capture();
+    });
 
-    // 创建一个 Signals 迭代器，用于捕获信号
-    let mut signals = Signals::new(&[SIGINT, SIGTERM]).expect("Error creating signal iterator");
-    for signal in signals.forever() {
-        match signal {
-            SIGINT => {
-                println!("Received SIGINT");
-                // 执行 SIGINT 信号的操作
-                // ...
-                break;
-            }
-            SIGTERM => {
-                println!("Received SIGTERM");
-                // 执行 SIGTERM 信号的操作
-                // ...
-                break;
-            }
-            _ => panic!(),
-        }
-    }
+    #[cfg(linux)]
+        let mut stream = signal(SignalKind::hangup())?;
+    #[cfg(linux)]
+    stream.recv().await;
 
-    println!("Program exited");
+    #[cfg(windows)]
+        let mut signal = ctrl_c().unwrap();
+    #[cfg(windows)]
+    signal.recv().await;
+}
+
+
+fn init_capture() {
+
+    println!("111111111");
 }
