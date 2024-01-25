@@ -1,4 +1,5 @@
 [net]
+dynamic_interfaces = true
 bpf_filter = ""
 link_name = ["lo"]
 

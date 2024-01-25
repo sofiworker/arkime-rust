@@ -5,15 +5,16 @@ use serde_derive::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Config {
-    net: NetConfig,
-    service: ServiceConfig,
-    log: LogConfig,
+    pub net: NetConfig,
+    pub service: ServiceConfig,
+    pub log: LogConfig,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct NetConfig {
-    bpf_filter: String,
-    link_name: Vec<String>,
+    pub dynamic_interfaces: bool,
+    pub bpf_filter: String,
+    pub link_name: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
