@@ -1,16 +1,13 @@
 pub struct Session {
     session_id: String,
-    
 }
 
-
-pub struct TcpData{
+pub struct TcpData {
     seq: u32,
     ack: u32,
     len: u16,
     data_offset: u16,
 }
-
 
 pub struct Packet {
     writer_file_pos: u64,
@@ -26,24 +23,19 @@ pub struct Packet {
     vlan_id: u32,
 }
 
-
-
 impl Session {
-    pub fn flush() {
+    pub fn flush() {}
 
-    }
-
-    pub fn close() {
-
-    }   
+    pub fn close() {}
 
     pub fn get_session_id() -> String {
         String::new()
-    } 
-
+    }
 
     pub fn init_session() -> Session {
-        Session { session_id: String::new() }
+        Session {
+            session_id: String::new(),
+        }
     }
 
     pub fn session_find_or_create() -> Session {

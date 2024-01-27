@@ -6,6 +6,4 @@ pub trait Log {
     fn panic(fmt: String);
 }
 
-pub struct LogInstance {
-
-}
+pub struct LogInstance {}

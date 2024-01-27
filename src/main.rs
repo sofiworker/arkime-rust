@@ -1,14 +1,17 @@
+use std::process;
+
+use capture::capture::Capture;
 use tokio::signal;
 
+mod capture;
+mod cmd;
+mod conf;
 pub mod core;
+mod filter;
 pub mod log;
 pub mod plugins;
-pub mod service;
 pub mod route;
-mod filter;
-mod conf;
-mod cmd;
-mod capture;
+pub mod service;
 
 #[tokio::main]
 async fn main() {
@@ -18,18 +21,23 @@ async fn main() {
     tokio::spawn(async {
         init_capture();
     });
-
     match signal::ctrl_c().await {
         Ok(()) => {
-            println!("bye!!!!")
-        },
+            println!("bye!!!!");
+            process::exit(0);
+        }
         Err(err) => {
             eprintln!("Unable to listen for shutdown signal: {}", err);
-        },
+        }
     }
 }
 
-
 fn init_capture() {
-    capture::start_capture();
+    let capture = Capture::new();
+    match capture.run() {
+        Ok(_) => {}
+        Err(e) => {
+            panic!("{}", e);
+        }
+    }
 }

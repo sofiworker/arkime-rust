@@ -1,7 +1,7 @@
 use lazy_static::lazy_static;
+use serde_derive::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::Read;
-use serde_derive::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Config {
@@ -35,13 +35,13 @@ impl Default for Config {
 
         let mut file = match File::open(file_path) {
             Ok(f) => f,
-            Err(e) => panic!("error is op en conf {e}")
+            Err(e) => panic!("error is op en conf {e}"),
         };
 
         let mut str = String::new();
         match file.read_to_string(&mut str) {
             Ok(s) => s,
-            Err(e) => panic!("error read str {}", e)
+            Err(e) => panic!("error read str {}", e),
         };
 
         toml::from_str(&str).expect("parse config file failed")
@@ -51,7 +51,7 @@ impl Default for Config {
 impl Config {
     pub fn get<'a>() -> &'a Self {
         lazy_static! {
-            static ref CACHE : Config = Config::default();
+            static ref CACHE: Config = Config::default();
         }
         &CACHE
     }

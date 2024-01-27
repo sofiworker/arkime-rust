@@ -1,66 +1,75 @@
 extern crate pnet;
 
-use std::sync::mpsc;
-
-use lazy_static::lazy_static;
-use pnet::datalink::{self, NetworkInterface};
 use pnet::datalink::Channel::Ethernet;
-use pnet::packet::{Packet, MutablePacket};
+use pnet::datalink::{self, NetworkInterface};
 use pnet::packet::ethernet::{EthernetPacket, MutableEthernetPacket};
-use tokio::sync::watch;
-
-use crate::conf;
+use pnet::packet::{MutablePacket, Packet};
+use std::{
+    borrow::{Borrow, BorrowMut},
+    collections::HashMap,
+    io::Error,
+    sync::{self, Arc, Mutex},
+};
+use tokio::sync::broadcast::{self, Receiver, Sender};
 
 pub struct Capture {
-
+    pub tx: broadcast::Sender<InterfaceMsg>,
+    pub rx: broadcast::Receiver<InterfaceMsg>,
+    pub capture_pool: sync::Mutex<HashMap<i32, i32>>,
 }
 
 impl Capture {
-    pub fn get<'a>() -> &'a Self {
-        lazy_static! {
-            static ref CACHE :Capture = Capture::default();
-        }
-        &CACHE
-    }
-}
-
-impl Default for Capture {
-    fn default() -> Self {
-
-        Capture{
-            
+    pub fn new() -> Self {
+        let (tx, rx) = broadcast::channel(1000);
+        Capture {
+            tx: tx,
+            rx: rx,
+            capture_pool: Mutex::new(HashMap::new()),
         }
     }
-}
 
-
-#[derive(Debug)]
-enum InterfaceMsg {
-    Add{
-        Name: String,
-    },
-    Del {
-        Name: String,
-    }
-}
-
-
-pub fn start_capture() {
-    let (tx, mut rx) = watch::channel("hello");
-    tokio::spawn(async move {
-        // Use the equivalent of a "do-while" loop so the initial value is
-        // processed before awaiting the `changed()` future.
-        loop {
-            println!("{}! ", *rx.borrow_and_update());
-            if rx.changed().await.is_err() {
-                break;
+    pub fn run(&self) -> Result<(), Error> {
+        let listen_interfaces_thread = tokio::spawn(async { loop {} });
+        let interfaces = datalink::interfaces();
+        for interface in interfaces {
+            if interface.is_loopback() {
+                continue;
             }
+            let thread = tokio::spawn(async move {
+                // Create a new channel, dealing with layer 2 packets
+                let (mut tx, mut rx) = match datalink::channel(&interface, Default::default()) {
+                    Ok(Ethernet(tx, rx)) => (tx, rx),
+                    Ok(_) => panic!("Unhandled channel type"),
+                    Err(e) => panic!(
+                        "An error occurred when creating the datalink channel: {}",
+                        e
+                    ),
+                };
+
+                loop {
+                    match rx.next() {
+                        Ok(packet) => {
+                            let packet = EthernetPacket::new(packet).unwrap();
+                            // tx.build_and_send(1, packet.packet().len());
+                        }
+                        Err(e) => {
+                            // If an error occurs, we can handle it here
+                            panic!("An error occurred while reading: {}", e);
+                        }
+                    }
+                }
+            });
+            let mut task = self.capture_pool.lock().unwrap();
+            task.insert(0, 1);
         }
-    });
+        Ok(())
+    }
 }
 
-
-
-pub fn listen_interface_dynamic() {
-    let interfaces = datalink::interfaces();
+pub enum InterfaceMsgKind {
+    Add,
+    Del,
 }
+
+#[derive(Debug, Clone)]
+pub struct InterfaceMsg {}
