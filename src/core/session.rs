@@ -1,5 +1,16 @@
+use std::collections::HashMap;
+
 pub struct Session {
     session_id: String,
+    pub session_list: HashMap<SessionKind, Session>,
+}
+
+pub struct SessionTree{
+
+}
+
+pub struct SessionTreeNode{
+    
 }
 
 pub struct TcpData {
@@ -24,6 +35,7 @@ pub struct Packet {
 }
 
 impl Session {
+
     pub fn flush() {}
 
     pub fn close() {}
@@ -32,21 +44,27 @@ impl Session {
         String::new()
     }
 
-    pub fn init_session() -> Session {
-        Session {
-            session_id: String::new(),
-        }
+    // pub fn init_session() -> Session {
+    //     Session {
+    //         session_id: String::new(),
+    //     }
+    // }
+
+    pub fn session_find_or_create() -> () {
+        // return Session {
+        //     session_id: String::from("value"),
+        // };
     }
 
-    pub fn session_find_or_create() -> Session {
-        return Session {
-            session_id: String::from("value"),
-        };
+    pub fn get_session_by_id(session_id: String) -> () {
+        // return Session {
+        //     session_id: String::from("value"),
+        // };
     }
+}
 
-    pub fn get_session_by_id(session_id: String) -> Session {
-        return Session {
-            session_id: String::from("value"),
-        };
-    }
+pub enum SessionKind {
+    Tcp,
+    Udp,
+    Uknown
 }
