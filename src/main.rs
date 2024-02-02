@@ -8,7 +8,7 @@ mod cmd;
 mod conf;
 pub mod core;
 mod filter;
-pub mod log;
+
 pub mod plugins;
 pub mod route;
 pub mod service;

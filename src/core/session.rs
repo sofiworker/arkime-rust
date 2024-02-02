@@ -66,5 +66,5 @@ impl Session {
 pub enum SessionKind {
     Tcp,
     Udp,
-    Uknown
+    UnKnown
 }
