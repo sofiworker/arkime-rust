@@ -13,6 +13,8 @@ pub mod plugins;
 pub mod route;
 pub mod service;
 
+mod layer;
+
 #[tokio::main]
 async fn main() {
     conf::Config::get();

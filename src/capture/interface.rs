@@ -8,15 +8,21 @@ pub struct InterfaceHandler {
 impl InterfaceHandler {
     pub fn new() -> Self {
         Self {
-            interface_list: Mutex::new(vec![]),
+            interface_list: Mutex::new(Vec::new()),
         }
     }
 
-    pub fn listen_interface_d(&self) {
-        let listen_interfaces_thread = tokio::spawn(async { loop {} });
+    pub fn listen_interface(&self) {
+        let listen_interfaces_thread = tokio::spawn(async {
+            // loop {
+            //     datalink::interfaces()
+            // }
+        });
     }
 
     pub fn get_interfaces(&self) -> Vec<datalink::NetworkInterface> {
-        self.interface_list.lock().unwrap()?
+        // let guard = self.interface_list.lock().unwrap();
+        // guard.clone()
+        datalink::interfaces()
     }
 }
