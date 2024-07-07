@@ -20,3 +20,6 @@ ctrlc = { version = "3.4", features = ["termination"] }
 rustix = "0.38.30"
 ipnet = "2.9.0"
 lazy_static = "1.4"
+config = "0.14.0"
+notify = "6.0"
+clap = { version = "4.5.8", features = ["derive"] }

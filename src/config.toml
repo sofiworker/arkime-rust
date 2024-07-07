@@ -1,15 +1,14 @@
 [net]
-dynamic_interfaces = true
 bpf_filter = ""
-link_name = ["lo"]
+dynamic_interfaces = true
+link_name = ["lo", "ens*"]
 
 [service]
+hostname = ""
 host = "127.0.0.1"
 port = 8080
-
-[core]
-hostname = ""
+socket_path = ""
 
 [log]
 level = "info"
-output = "arkime.log"
+output = "arkime-rust.log"

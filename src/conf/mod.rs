@@ -1,3 +1,3 @@
 pub mod conf;
 
-pub use conf::Config;
+pub use conf::ArkimeConfig;

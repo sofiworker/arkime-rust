@@ -12,7 +12,7 @@ use std::{borrow::Borrow, collections::HashMap, io::Error, sync::Mutex};
 use tokio::task;
 
 pub struct Capture {
-    pub capture_pool: Arc<Mutex<HashMap<String, task::JoinHandle<u32>>>>,
+    capture_pool: Arc<Mutex<HashMap<String, task::JoinHandle<u32>>>>,
     capture_interface_list: Vec<NetworkInterface>,
 }
 

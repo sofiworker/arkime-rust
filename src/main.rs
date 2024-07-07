@@ -1,7 +1,4 @@
-use std::process;
-
-use capture::capture::Capture;
-use tokio::signal;
+use clap::Command;
 
 mod capture;
 mod cmd;
@@ -17,29 +14,19 @@ mod layer;
 
 #[tokio::main]
 async fn main() {
-    conf::Config::get();
+    let root_cmd = Command::new("arkime-rust").subcommands([
+        cmd::capture::capture(),
+        cmd::config::config(),
+        cmd::reload::reload(),
+        cmd::stop::stop(),
+        cmd::version::version()
+    ]);
+    let mut help_cmd = root_cmd.clone();
+    let matches = root_cmd.get_matches();
 
-    // here to start handle interfaces and data capture
-    tokio::spawn(async {
-        init_capture();
-    });
-    match signal::ctrl_c().await {
-        Ok(()) => {
-            println!("bye!!!!");
-            process::exit(0);
-        }
-        Err(err) => {
-            eprintln!("Unable to listen for shutdown signal: {}", err);
-        }
+    match matches.subcommand() {
+        Some(("capture", capture_cmd)) => {},
+        _ => help_cmd.print_help().unwrap()
     }
-}
-
-fn init_capture() {
-    let capture = Capture::new();
-    match capture.run() {
-        Ok(_) => {}
-        Err(e) => {
-            panic!("{}", e);
-        }
-    }
+    conf::ArkimeConfig::init();
 }
