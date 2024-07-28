@@ -26,6 +26,12 @@ async fn main() {
 
     match matches.subcommand() {
         Some(("capture", capture_cmd)) => {},
+        Some(("config", config_cmd)) => {},
+        Some(("reload", reload_cmd)) => {},
+        Some(("stop", stop_cmd)) => {},
+        Some(("version", version_cmd)) => {
+            cmd::version::version();
+        },
         _ => help_cmd.print_help().unwrap()
     }
     conf::ArkimeConfig::init();
