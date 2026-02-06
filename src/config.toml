@@ -1,7 +1,26 @@
+[capture]
+backend = "libpcap"
+enabled_backends = ["libpcap", "pfring", "raw_socket", "dpdk", "ebpf"]
+snaplen = 65535
+promisc = true
+read_timeout_ms = 50
+
 [net]
 bpf_filter = ""
 dynamic_interfaces = true
-link_name = ["lo", "ens*"]
+link_patterns = ["eth*", "ens*", "lo"]
+discovery_interval_secs = 2
+
+[storage]
+backend = "local_fs"
+format = "pcap"
+local_path = "./data/pcap"
+bucket = "arkime-rust-capture"
+endpoint = ""
+
+[index]
+enabled = true
+max_entries = 200000
 
 [service]
 hostname = ""

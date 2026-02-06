@@ -1,106 +1,152 @@
-extern crate pnet;
-
-use crate::capture::interface;
-use crate::core::session;
-use pnet::datalink;
-use pnet::datalink::Channel::Ethernet;
+use crate::capture::backend::{build_backend, PacketCaptureBackend};
+use crate::capture::interface::{InterfaceHandler, InterfaceState};
+use crate::conf::ArkimeConfig;
+use crate::core::session::SessionTable;
+use crate::filter::PacketFilter;
+use crate::layer::parse_packet;
+use crate::pcap::PacketRecorder;
+use crate::plugins::PluginManager;
+use crate::route::render_stats;
+use crate::service::RuntimeStats;
 use pnet::datalink::NetworkInterface;
-use pnet::packet::ethernet::EthernetPacket;
-use pnet::packet::Packet;
-use std::sync::Arc;
-use std::{borrow::Borrow, collections::HashMap, io::Error, sync::Mutex};
-use tokio::task;
+use std::collections::HashMap;
+use std::io::{Error, ErrorKind};
+use std::net::{IpAddr, Ipv4Addr};
+use std::thread;
+use std::time::{Duration, Instant};
 
 pub struct Capture {
-    capture_pool: Arc<Mutex<HashMap<String, task::JoinHandle<u32>>>>,
-    capture_interface_list: Vec<NetworkInterface>,
+    config: ArkimeConfig,
 }
 
 impl Capture {
-    pub fn new() -> Self {
-        Self {
-            capture_pool: Arc::new(Mutex::new(HashMap::new())),
-            capture_interface_list: Vec::new(),
-        }
+    pub fn new(config: ArkimeConfig) -> Self {
+        Self { config }
     }
 
     pub fn run(&self) -> Result<(), Error> {
-        let interface_handler = interface::InterfaceHandler::new();
+        self.validate_backend()?;
+
+        let interface_handler = InterfaceHandler::new(self.config.net.link_patterns.clone());
+        let mut interface_state = InterfaceState::default();
+        let mut workers: HashMap<String, Box<dyn PacketCaptureBackend>> = HashMap::new();
+
+        let mut session_table = SessionTable::default();
+        let mut plugins = PluginManager::default();
+        let filter = PacketFilter;
+        let mut recorder = PacketRecorder::new(&self.config.storage, &self.config.index)
+            .map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?;
+
+        let mut last_report = Instant::now();
+
         loop {
-            // here to handle interface modify
-            let new_interfaces = interface_handler.get_interfaces();
+            let interfaces = interface_handler.get_interfaces();
+            let delta = interface_state.diff(interfaces.clone());
 
-            let running_map: HashMap<String, NetworkInterface> = self
-                .capture_interface_list
-                .iter()
-                .fold(HashMap::new(), |mut map, item| {
-                    map.insert(item.name.clone(), item.clone());
-                    map
-                });
-
-            let del: Vec<String> = new_interfaces
-                .iter()
-                .map(|x| match running_map.get(&x.name) {
-                    Some(n) => Some(n.name.clone()),
-                    _ => None,
-                })
-                .filter(|x| x.is_some())
-                .map(|x| x.unwrap())
-                .collect();
-
-            let add: Vec<NetworkInterface> = new_interfaces
-                .iter()
-                .map(|x| match running_map.get(&x.name) {
-                    Some(n) => Some(n.clone()),
-                    _ => None,
-                })
-                .filter(|x| x.is_some())
-                .map(|x| x.unwrap())
-                .collect();
-
-            let mut pool = self.capture_pool.lock().unwrap();
-            for name in del {
-                let thread = pool.get(&name);
-                thread.unwrap().abort();
-                pool.remove(&name);
+            for removed in delta.removed {
+                workers.remove(&removed);
+                println!("interface removed: {removed}");
             }
-            self.start_capture(add);
+
+            for added in delta.added {
+                let worker =
+                    build_backend(&self.config.capture.backend, &self.config.capture, &added)?;
+                println!(
+                    "interface added: {} backend={:?}",
+                    added.name, self.config.capture.backend
+                );
+                workers.insert(added.name.clone(), worker);
+            }
+
+            self.capture_once(
+                &interfaces,
+                &mut workers,
+                &filter,
+                &mut session_table,
+                &mut plugins,
+                &mut recorder,
+            )?;
+
+            if last_report.elapsed() >= Duration::from_secs(5) {
+                let (packets, bytes, sessions) = session_table.totals();
+                let stats = RuntimeStats {
+                    packets,
+                    bytes,
+                    sessions,
+                };
+                println!("stats {}", render_stats(stats));
+
+                if self.config.index.enabled {
+                    let matched = recorder.search_by_ip(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)));
+                    println!("index.search_by_ip(127.0.0.1) -> {} hits", matched.len());
+                }
+
+                last_report = Instant::now();
+            }
+
+            if !self.config.net.dynamic_interfaces {
+                break;
+            }
+
+            thread::sleep(Duration::from_secs(self.config.net.discovery_interval_secs));
         }
+
+        Ok(())
     }
 
-    fn start_capture(&self, interface_list: Vec<NetworkInterface>) {
-        let mut pool = self.capture_pool.lock().unwrap();
-        for interface in interface_list {
-            let interface_name = interface.clone().name;
-            let thread = tokio::spawn(async move {
-                let (mut tx, mut rx) = match datalink::channel(&interface, Default::default()) {
-                    Ok(Ethernet(tx, rx)) => (tx, rx),
-                    Ok(_) => panic!("Unhandled channel type"),
-                    Err(e) => panic!(
-                        "An error occurred when creating the datalink channel: {}",
-                        e
-                    ),
-                };
+    fn capture_once(
+        &self,
+        interfaces: &[NetworkInterface],
+        workers: &mut HashMap<String, Box<dyn PacketCaptureBackend>>,
+        filter: &PacketFilter,
+        session_table: &mut SessionTable,
+        plugins: &mut PluginManager,
+        recorder: &mut PacketRecorder,
+    ) -> Result<(), Error> {
+        for iface in interfaces {
+            let Some(worker) = workers.get_mut(&iface.name) else {
+                continue;
+            };
 
-                // println!("the listen interface is {}", interface.name);
-
-                loop {
-                    match rx.next() {
-                        Ok(packet) => {
-                            let packet: EthernetPacket<'_> = EthernetPacket::new(packet).unwrap();
-                            // tx.build_and_send(1, packet.packet().len());
-                            // packet.payload();
-                            // session::Session::session_find_or_create();
-                            println!("----------->{}", interface.name);
-                        }
-                        Err(e) => {
-                            // If an error occurs, we can handle it here
-                            panic!("An error occurred while reading: {}", e);
-                        }
+            if let Ok(frame) = worker.recv() {
+                if let Some(packet) = parse_packet(frame) {
+                    if !filter.allow(&packet) {
+                        continue;
                     }
+
+                    if let Some(flow) = packet.flow.clone() {
+                        session_table.observe_packet(flow, frame.len());
+                    }
+
+                    recorder
+                        .record(&iface.name, frame, &packet)
+                        .map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?;
+
+                    plugins.on_packet(&packet);
                 }
-            });
-            pool.insert(interface_name, thread);
+            }
         }
+
+        Ok(())
+    }
+
+    fn validate_backend(&self) -> Result<(), Error> {
+        if self
+            .config
+            .capture
+            .enabled_backends
+            .iter()
+            .any(|b| b == &self.config.capture.backend)
+        {
+            return Ok(());
+        }
+
+        Err(Error::new(
+            ErrorKind::InvalidInput,
+            format!(
+                "backend {:?} is not in enabled_backends",
+                self.config.capture.backend
+            ),
+        ))
     }
 }
