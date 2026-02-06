@@ -1,25 +1,48 @@
 ## arkime-rust
 
-使用 Rust 重写 Arkime 抓包核心的实验性版本，目标是：
+Experimental rewrite of Arkime capture core in Rust.
 
-- 支持高性能抓包能力扩展（`libpcap`、`pfring`、`raw socket`、`dpdk`、`ebpf` 作为可配置后端）。
-- 默认保留对以太网主网卡抓包并解 VLAN 的能力，避免直接监听 VLAN 子接口造成重复资源消耗。
-- 允许用户显式指定 VLAN 子接口（如 `eth0.100`）时再单独监听。
-- 配置采用类似 Go Viper 的“文件 + 环境变量”合并模式（环境变量优先）。
-- 具备动态网卡发现所需的接口筛选基础（按通配符匹配接口）。
+### Goals
 
-> NOTE: You must place Packet.lib from the WinPcap Developers pack in a directory named lib, in the root of this repository. Alternatively, you can use any of the locations listed in the %LIB%/$Env:LIB environment variables. For the 64 bit toolchain it is in WpdPack/Lib/x64/Packet.lib, for the 32 bit toolchain, it is in WpdPack/Lib/Packet.lib.
+- Linux-first capture path.
+- Pluggable capture backends (implemented today: a `libpcap`-compatible path via `pnet` datalink).
+- Planned backends: `pfring`, `raw_socket`, `dpdk`, `ebpf` via Linux runtime adapters.
+- Capture pipeline scaffold: capture -> parse -> filter -> session aggregation -> pcap/pcapng record -> metadata index.
+- Config layering: `src/config.toml` merged with environment variables. Prefix `ARKIME_RUST`, separator `__`.
 
-### 配置说明
+### Usage
 
-配置文件位于 `src/config.toml`，并支持环境变量覆盖：
+```bash
+cargo run -- config --config src/config.toml
+cargo run -- capture --config src/config.toml
+```
 
-- 前缀：`ARKIME_RUST`
-- 层级分隔符：`__`
-- 示例：`ARKIME_RUST__CAPTURE__BACKEND=ebpf`
+Environment overrides example:
 
-常见字段：
+```bash
+export ARKIME_RUST__CAPTURE__BACKEND=libpcap
+export ARKIME_RUST__STORAGE__FORMAT=pcapng
+export ARKIME_RUST__STORAGE__BACKEND=s3
+export ARKIME_RUST__STORAGE__ENDPOINT=http://127.0.0.1:9000
+```
 
-- `capture.backend`: 当前抓包后端。
-- `capture.enabled_backends`: 允许启用的后端集合。
-- `net.link_patterns`: 接口匹配规则，如 `eth*`、`ens*`。
+### Config Notes
+
+- `storage.backend`: `local_fs | s3 | ceph` (currently the file writer is local; other backends are config scaffolding).
+- `storage.format`: `pcap | pcapng`
+- `storage.local_path`: local output directory
+- `index.enabled`: enable in-memory metadata index
+- `index.max_entries`: max retained metadata entries
+
+### Interface Selection (VLAN)
+
+By default, capture listens on parent Ethernet interfaces and parses VLAN tags inside packets.
+VLAN sub-interfaces (for example `eth0.100`) are ignored unless explicitly configured via `net.link_patterns`.
+
+### Windows Note (Npcap/WinPcap)
+
+> NOTE: You must place `Packet.lib` from the WinPcap Developers Pack in a directory named `lib`,
+> in the root of this repository. Alternatively, you can use any of the locations listed in the
+> `%LIB%` / `$Env:LIB` environment variables. For the 64-bit toolchain it is in
+> `WpdPack/Lib/x64/Packet.lib`, for the 32-bit toolchain, it is in `WpdPack/Lib/Packet.lib`.
+

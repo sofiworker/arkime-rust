@@ -5,6 +5,7 @@ mod cmd;
 mod conf;
 pub mod core;
 mod filter;
+mod pcap;
 
 pub mod plugins;
 pub mod route;
@@ -24,8 +25,14 @@ fn main() {
     let matches = root_cmd.get_matches();
 
     match matches.subcommand() {
-        Some(("capture", _)) => cmd::capture::start_capture(),
-        Some(("config", _)) => cmd::config::show_config(),
+        Some(("capture", sub)) => {
+            let path = sub.get_one::<String>("config").map(String::as_str);
+            cmd::capture::start_capture(path);
+        }
+        Some(("config", sub)) => {
+            let path = sub.get_one::<String>("config").map(String::as_str);
+            cmd::config::show_config(path);
+        }
         Some(("version", _)) => {
             println!("{}", env!("CARGO_PKG_VERSION"));
         }

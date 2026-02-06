@@ -1,70 +1,59 @@
+use crate::layer::FlowKey;
 use std::collections::HashMap;
 
-pub struct Session {
-    session_id: String,
-    pub session_list: HashMap<SessionKind, Session>,
+#[derive(Debug, Default, Clone)]
+pub struct SessionMetrics {
+    pub packets: u64,
+    pub bytes: u64,
 }
 
-pub struct SessionTree{
-
+#[derive(Debug, Default)]
+pub struct SessionTable {
+    sessions: HashMap<FlowKey, SessionMetrics>,
+    total_packets: u64,
+    total_bytes: u64,
 }
 
-pub struct SessionTreeNode{
-    
-}
+impl SessionTable {
+    pub fn observe_packet(&mut self, flow: FlowKey, frame_len: usize) {
+        self.total_packets += 1;
+        self.total_bytes += frame_len as u64;
 
-pub struct TcpData {
-    seq: u32,
-    ack: u32,
-    len: u16,
-    data_offset: u16,
-}
-
-pub struct Packet {
-    writer_file_pos: u64,
-    read_file_pos: u64,
-    writer_file_num: u32,
-    hash: u32,
-    pktlen: u32,
-    payload_len: u32,
-    payload_offset: u32,
-    v6: bool,
-    capied: bool,
-    outer_ip_offset: u32,
-    vlan_id: u32,
-}
-
-impl Session {
-
-    pub fn flush() {}
-
-    pub fn close() {}
-
-    pub fn get_session_id() -> String {
-        String::new()
+        let entry = self.sessions.entry(flow).or_default();
+        entry.packets += 1;
+        entry.bytes += frame_len as u64;
     }
 
-    // pub fn init_session() -> Session {
-    //     Session {
-    //         session_id: String::new(),
-    //     }
-    // }
-
-    pub fn session_find_or_create() -> () {
-        // return Session {
-        //     session_id: String::from("value"),
-        // };
-    }
-
-    pub fn get_session_by_id(session_id: String) -> () {
-        // return Session {
-        //     session_id: String::from("value"),
-        // };
+    pub fn totals(&self) -> (u64, u64, usize) {
+        (self.total_packets, self.total_bytes, self.sessions.len())
     }
 }
 
-pub enum SessionKind {
-    Tcp,
-    Udp,
-    UnKnown
+#[cfg(test)]
+mod tests {
+    use super::SessionTable;
+    use crate::layer::{FlowKey, TransportInfo};
+    use std::net::{IpAddr, Ipv4Addr};
+
+    #[test]
+    fn aggregate_packets_by_flow() {
+        let mut table = SessionTable::default();
+        let flow = FlowKey {
+            src: IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
+            dst: IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)),
+            transport: TransportInfo::Tcp {
+                src_port: 12345,
+                dst_port: 80,
+            },
+            vlan_id: None,
+        };
+
+        table.observe_packet(flow.clone(), 64);
+        table.observe_packet(flow, 128);
+
+        let (packets, bytes, sessions) = table.totals();
+        assert_eq!(packets, 2);
+        assert_eq!(bytes, 192);
+        assert_eq!(sessions, 1);
+    }
 }
