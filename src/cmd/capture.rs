@@ -1,33 +1,20 @@
-use std::process;
-use clap::{command, value_parser, Arg, ArgAction, ArgGroup, ArgMatches, Command};
-use tokio::signal;
 use crate::capture::capture::Capture;
+use crate::conf::ArkimeConfig;
+use clap::{Arg, Command};
 
 pub fn capture() -> Command {
-    Command::new("capture")
+    Command::new("capture").about("start packet capture").arg(
+        Arg::new("config")
+            .long("config")
+            .default_value("src/config.toml")
+            .help("config file path"),
+    )
 }
 
-
-async fn start_capture() {
-    // here to start handle interfaces and data capture
-    tokio::spawn(async {
-        let capture = Capture::new();
-        match capture.run() {
-            Ok(_) => {}
-            Err(e) => {
-                panic!("{}", e);
-            }
-        }
-    });
-
-
-    match signal::ctrl_c().await {
-        Ok(()) => {
-            println!("bye!!!!");
-            process::exit(0);
-        }
-        Err(err) => {
-            eprintln!("Unable to listen for shutdown signal: {}", err);
-        }
+pub fn start_capture(config_path: &str) {
+    let config = ArkimeConfig::load_from_path(config_path).expect("failed to load config");
+    let capture = Capture::new(config);
+    if let Err(err) = capture.run() {
+        eprintln!("capture error: {err}");
     }
 }

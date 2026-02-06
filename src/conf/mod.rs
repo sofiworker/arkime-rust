@@ -1,3 +1,3 @@
 pub mod conf;
 
-pub use conf::ArkimeConfig;
+pub use conf::{ArkimeConfig, CaptureBackend, CaptureConfig};

@@ -1,7 +1,15 @@
+[capture]
+backend = "libpcap"
+enabled_backends = ["libpcap", "pfring", "raw_socket", "dpdk", "ebpf"]
+snaplen = 65535
+promisc = true
+read_timeout_ms = 50
+
 [net]
 bpf_filter = ""
 dynamic_interfaces = true
-link_name = ["lo", "ens*"]
+link_patterns = ["eth*", "ens*", "lo"]
+discovery_interval_secs = 2
 
 [service]
 hostname = ""
