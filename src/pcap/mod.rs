@@ -1,7 +1,7 @@
 use crate::conf::{IndexConfig, StorageBackend, StorageConfig, StorageFormat};
 use crate::layer::{ParsedPacket, TransportInfo};
 use std::fs::{create_dir_all, File, OpenOptions};
-use std::io::{self, BufWriter, Write};
+use std::io::{self, BufWriter, Seek, SeekFrom, Write};
 use std::net::IpAddr;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -40,6 +40,24 @@ impl MetadataIndex {
             .filter(|m| m.src_ip == Some(ip) || m.dst_ip == Some(ip))
             .collect()
     }
+
+    pub fn search_by_port(&self, port: u16) -> Vec<&PacketMetadata> {
+        self.entries
+            .iter()
+            .filter(|m| m.src_port == Some(port) || m.dst_port == Some(port))
+            .collect()
+    }
+
+    pub fn search_by_vlan(&self, vlan_id: u16) -> Vec<&PacketMetadata> {
+        self.entries
+            .iter()
+            .filter(|m| m.vlan_id == Some(vlan_id))
+            .collect()
+    }
+
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
 }
 
 trait PacketSink: Send {
@@ -51,16 +69,17 @@ struct PcapSink {
 }
 
 impl PcapSink {
-    fn new(file: File) -> io::Result<Self> {
+    fn new(file: File, is_new_file: bool) -> io::Result<Self> {
         let mut writer = BufWriter::new(file);
-        // PCAP global header (little-endian)
-        writer.write_all(&0xa1b2c3d4u32.to_le_bytes())?;
-        writer.write_all(&2u16.to_le_bytes())?;
-        writer.write_all(&4u16.to_le_bytes())?;
-        writer.write_all(&0i32.to_le_bytes())?;
-        writer.write_all(&0u32.to_le_bytes())?;
-        writer.write_all(&65535u32.to_le_bytes())?;
-        writer.write_all(&1u32.to_le_bytes())?; // LINKTYPE_ETHERNET
+        if is_new_file {
+            writer.write_all(&0xa1b2c3d4u32.to_le_bytes())?;
+            writer.write_all(&2u16.to_le_bytes())?;
+            writer.write_all(&4u16.to_le_bytes())?;
+            writer.write_all(&0i32.to_le_bytes())?;
+            writer.write_all(&0u32.to_le_bytes())?;
+            writer.write_all(&65535u32.to_le_bytes())?;
+            writer.write_all(&1u32.to_le_bytes())?;
+        }
         Ok(Self { writer })
     }
 }
@@ -83,19 +102,20 @@ struct PcapNgSink {
 }
 
 impl PcapNgSink {
-    fn new(file: File) -> io::Result<Self> {
+    fn new(file: File, is_new_file: bool) -> io::Result<Self> {
         let mut writer = BufWriter::new(file);
-        // Section Header Block
-        writer.write_all(&0x0A0D0D0Au32.to_le_bytes())?;
-        writer.write_all(&28u32.to_le_bytes())?;
-        writer.write_all(&0x1A2B3C4Du32.to_le_bytes())?;
-        writer.write_all(&1u16.to_le_bytes())?;
-        writer.write_all(&0u16.to_le_bytes())?;
-        writer.write_all(&(-1i64).to_le_bytes())?;
-        writer.write_all(&28u32.to_le_bytes())?;
+        if is_new_file {
+            writer.write_all(&0x0A0D0D0Au32.to_le_bytes())?;
+            writer.write_all(&28u32.to_le_bytes())?;
+            writer.write_all(&0x1A2B3C4Du32.to_le_bytes())?;
+            writer.write_all(&1u16.to_le_bytes())?;
+            writer.write_all(&0u16.to_le_bytes())?;
+            writer.write_all(&(-1i64).to_le_bytes())?;
+            writer.write_all(&28u32.to_le_bytes())?;
+        }
         Ok(Self {
             writer,
-            wrote_if_block: false,
+            wrote_if_block: !is_new_file,
         })
     }
 
@@ -103,10 +123,9 @@ impl PcapNgSink {
         if self.wrote_if_block {
             return Ok(());
         }
-        // Interface Description Block
         self.writer.write_all(&1u32.to_le_bytes())?;
         self.writer.write_all(&20u32.to_le_bytes())?;
-        self.writer.write_all(&1u16.to_le_bytes())?; // LINKTYPE_ETHERNET
+        self.writer.write_all(&1u16.to_le_bytes())?;
         self.writer.write_all(&0u16.to_le_bytes())?;
         self.writer.write_all(&65535u32.to_le_bytes())?;
         self.writer.write_all(&20u32.to_le_bytes())?;
@@ -121,12 +140,15 @@ impl PacketSink for PcapNgSink {
         let packet_len = frame.len() as u32;
         let padded_len = (packet_len + 3) & !3;
         let block_len = 32 + padded_len;
+        let ts_ns: u64 = (ts_sec as u64) * 1_000_000_000 + (ts_usec as u64) * 1_000;
+        let ts_high = (ts_ns >> 32) as u32;
+        let ts_low = ts_ns as u32;
 
-        self.writer.write_all(&6u32.to_le_bytes())?; // EPB
+        self.writer.write_all(&6u32.to_le_bytes())?;
         self.writer.write_all(&block_len.to_le_bytes())?;
-        self.writer.write_all(&0u32.to_le_bytes())?; // interface id
-        self.writer.write_all(&ts_sec.to_le_bytes())?;
-        self.writer.write_all(&(ts_usec * 1000).to_le_bytes())?; // ns approximation
+        self.writer.write_all(&0u32.to_le_bytes())?;
+        self.writer.write_all(&ts_high.to_le_bytes())?;
+        self.writer.write_all(&ts_low.to_le_bytes())?;
         self.writer.write_all(&packet_len.to_le_bytes())?;
         self.writer.write_all(&packet_len.to_le_bytes())?;
         self.writer.write_all(frame)?;
@@ -146,10 +168,10 @@ pub struct PacketRecorder {
 
 impl PacketRecorder {
     pub fn new(storage: &StorageConfig, index_cfg: &IndexConfig) -> io::Result<Self> {
-        let file = open_output_file(storage)?;
+        let (file, is_new_file) = open_output_file(storage)?;
         let sink: Box<dyn PacketSink> = match storage.format {
-            StorageFormat::Pcap => Box::new(PcapSink::new(file)?),
-            StorageFormat::PcapNg => Box::new(PcapNgSink::new(file)?),
+            StorageFormat::Pcap => Box::new(PcapSink::new(file, is_new_file)?),
+            StorageFormat::PcapNg => Box::new(PcapNgSink::new(file, is_new_file)?),
         };
 
         Ok(Self {
@@ -201,9 +223,21 @@ impl PacketRecorder {
     pub fn search_by_ip(&self, ip: IpAddr) -> Vec<&PacketMetadata> {
         self.index.search_by_ip(ip)
     }
+
+    pub fn search_by_port(&self, port: u16) -> Vec<&PacketMetadata> {
+        self.index.search_by_port(port)
+    }
+
+    pub fn search_by_vlan(&self, vlan_id: u16) -> Vec<&PacketMetadata> {
+        self.index.search_by_vlan(vlan_id)
+    }
+
+    pub fn indexed_count(&self) -> usize {
+        self.index.len()
+    }
 }
 
-fn open_output_file(storage: &StorageConfig) -> io::Result<File> {
+fn open_output_file(storage: &StorageConfig) -> io::Result<(File, bool)> {
     let base = PathBuf::from(&storage.local_path);
     create_dir_all(&base)?;
 
@@ -218,10 +252,14 @@ fn open_output_file(storage: &StorageConfig) -> io::Result<File> {
         StorageFormat::PcapNg => "pcapng",
     };
 
-    OpenOptions::new()
+    let path = base.join(format!("{}.{}", file_name, ext));
+    let mut file = OpenOptions::new()
         .create(true)
+        .read(true)
         .append(true)
-        .open(base.join(format!("{}.{}", file_name, ext)))
+        .open(path)?;
+    let is_new_file = file.seek(SeekFrom::End(0))? == 0;
+    Ok((file, is_new_file))
 }
 
 #[cfg(test)]
@@ -245,11 +283,11 @@ mod tests {
                 iface: "eth0".to_string(),
                 capture_len: 64,
                 wire_len: 64,
-                vlan_id: None,
+                vlan_id: Some(100),
                 src_ip: Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))),
                 dst_ip: Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2))),
-                src_port: Some(1),
-                dst_port: Some(2),
+                src_port: Some(12345),
+                dst_port: Some(443),
             },
             &cfg,
         );
@@ -259,6 +297,8 @@ mod tests {
                 .len(),
             1
         );
+        assert_eq!(idx.search_by_port(443).len(), 1);
+        assert_eq!(idx.search_by_vlan(100).len(), 1);
         assert_eq!(
             idx.search_by_ip(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)))
                 .len(),
