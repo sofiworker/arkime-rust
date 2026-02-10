@@ -1,6 +1,6 @@
 pub mod conf;
 
 pub use conf::{
-    ArkimeConfig, CaptureBackend, CaptureConfig, IndexConfig, StorageBackend, StorageConfig,
-    StorageFormat,
+    ArkimeConfig, CaptureBackend, CaptureConfig, ClusterMode, IndexConfig,
+    LogConfig, StorageBackend, StorageConfig, StorageFormat,
 };

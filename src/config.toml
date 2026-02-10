@@ -4,12 +4,39 @@ enabled_backends = ["libpcap", "pfring", "raw_socket", "dpdk", "ebpf"]
 snaplen = 65535
 promisc = true
 read_timeout_ms = 50
+max_interface_threads = 0
+processing_threads = 0
 
 [net]
+# BPF filter:
+# - "" means allow all
+# - tcpdump syntax (libpcap filter language): e.g. "tcp port 80 and host 10.0.0.1"
+# - prefix "tcpdump:" is optional
+# - "ebpf:" / "cbpf:" supports tcpdump -ddd instruction format:
+#     ebpf: <n>\n<code> <jt> <jf> <k>\n...
 bpf_filter = ""
 dynamic_interfaces = true
 link_patterns = ["eth*", "ens*", "lo"]
 discovery_interval_secs = 2
+
+[session]
+# TCP session timeout (seconds)
+tcp_timeout_secs = 300
+# UDP session timeout (seconds). 0 means "auto": try OS/kernel default, otherwise fall back.
+udp_timeout_secs = 0
+max_entries = 1000000
+
+[layer]
+# Optional so/dll plugins for protocol parsing extension.
+plugins = []
+
+[cluster]
+enabled = false
+mode = "gossip"
+node_id = "node-1"
+bind_addr = "0.0.0.0:17801"
+peers = []
+heartbeat_secs = 2
 
 [storage]
 backend = "local_fs"
@@ -31,4 +58,8 @@ socket_path = ""
 [log]
 level = "info"
 output = "arkime-rust.log"
+rotate_max_size_mb = 100
+rotate_keep_files = 10
+compress = true
+stdout = true
 

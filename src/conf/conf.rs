@@ -10,6 +10,12 @@ pub struct ArkimeConfig {
     #[serde(default)]
     pub net: NetConfig,
     #[serde(default)]
+    pub session: SessionConfig,
+    #[serde(default)]
+    pub layer: LayerConfig,
+    #[serde(default)]
+    pub cluster: ClusterConfig,
+    #[serde(default)]
     pub storage: StorageConfig,
     #[serde(default)]
     pub index: IndexConfig,
@@ -47,6 +53,10 @@ pub struct CaptureConfig {
     pub promisc: bool,
     #[serde(default = "default_read_timeout_ms")]
     pub read_timeout_ms: u64,
+    #[serde(default = "default_max_interface_threads")]
+    pub max_interface_threads: usize,
+    #[serde(default = "default_processing_threads")]
+    pub processing_threads: usize,
 }
 
 impl Default for CaptureConfig {
@@ -57,6 +67,8 @@ impl Default for CaptureConfig {
             snaplen: default_snaplen(),
             promisc: default_promisc(),
             read_timeout_ms: default_read_timeout_ms(),
+            max_interface_threads: default_max_interface_threads(),
+            processing_threads: default_processing_threads(),
         }
     }
 }
@@ -81,6 +93,16 @@ fn default_promisc() -> bool {
 
 fn default_read_timeout_ms() -> u64 {
     50
+}
+
+fn default_max_interface_threads() -> usize {
+    // 0 means "auto" (use CPU count).
+    0
+}
+
+fn default_processing_threads() -> usize {
+    // 0 means "auto" (use CPU count).
+    0
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -115,6 +137,108 @@ fn default_link_patterns() -> Vec<String> {
 }
 
 fn default_discovery_interval_secs() -> u64 {
+    2
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionConfig {
+    // TCP sessions are connection-oriented; we keep them longer by default.
+    #[serde(default = "default_tcp_timeout_secs")]
+    pub tcp_timeout_secs: u64,
+    // UDP session lifetime is configurable. If 0, we'll try to read OS/kernel defaults
+    // (Linux conntrack) and otherwise fall back to a reasonable default.
+    #[serde(default = "default_udp_timeout_secs")]
+    pub udp_timeout_secs: u64,
+    #[serde(default = "default_session_max_entries")]
+    pub max_entries: usize,
+}
+
+impl Default for SessionConfig {
+    fn default() -> Self {
+        Self {
+            tcp_timeout_secs: default_tcp_timeout_secs(),
+            udp_timeout_secs: default_udp_timeout_secs(),
+            max_entries: default_session_max_entries(),
+        }
+    }
+}
+
+fn default_tcp_timeout_secs() -> u64 {
+    300
+}
+
+fn default_udp_timeout_secs() -> u64 {
+    0
+}
+
+fn default_session_max_entries() -> usize {
+    1_000_000
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LayerConfig {
+    #[serde(default)]
+    pub plugins: Vec<String>,
+}
+
+impl Default for LayerConfig {
+    fn default() -> Self {
+        Self { plugins: vec![] }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ClusterMode {
+    Gossip,
+    Raft,
+}
+
+impl Default for ClusterMode {
+    fn default() -> Self {
+        Self::Gossip
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClusterConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub mode: ClusterMode,
+    #[serde(default = "default_cluster_node_id")]
+    pub node_id: String,
+    #[serde(default = "default_cluster_bind_addr")]
+    pub bind_addr: String,
+    #[serde(default)]
+    pub peers: Vec<String>,
+    #[serde(default = "default_cluster_heartbeat_secs")]
+    pub heartbeat_secs: u64,
+}
+
+impl Default for ClusterConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            mode: ClusterMode::Gossip,
+            node_id: default_cluster_node_id(),
+            bind_addr: default_cluster_bind_addr(),
+            peers: vec![],
+            heartbeat_secs: default_cluster_heartbeat_secs(),
+        }
+    }
+}
+
+fn default_cluster_node_id() -> String {
+    // Stable default for local dev; production should set explicitly or via env.
+    "node-1".to_string()
+}
+
+fn default_cluster_bind_addr() -> String {
+    "0.0.0.0:17801".to_string()
+}
+
+fn default_cluster_heartbeat_secs() -> u64 {
     2
 }
 
@@ -241,6 +365,14 @@ pub struct LogConfig {
     pub level: String,
     #[serde(default = "default_log_output")]
     pub output: String,
+    #[serde(default = "default_log_rotate_max_size_mb")]
+    pub rotate_max_size_mb: u64,
+    #[serde(default = "default_log_rotate_keep_files")]
+    pub rotate_keep_files: usize,
+    #[serde(default = "default_log_compress")]
+    pub compress: bool,
+    #[serde(default = "default_log_stdout")]
+    pub stdout: bool,
 }
 
 impl Default for LogConfig {
@@ -248,6 +380,10 @@ impl Default for LogConfig {
         Self {
             level: default_log_level(),
             output: default_log_output(),
+            rotate_max_size_mb: default_log_rotate_max_size_mb(),
+            rotate_keep_files: default_log_rotate_keep_files(),
+            compress: default_log_compress(),
+            stdout: default_log_stdout(),
         }
     }
 }
@@ -258,6 +394,22 @@ fn default_log_level() -> String {
 
 fn default_log_output() -> String {
     "arkime-rust.log".to_string()
+}
+
+fn default_log_rotate_max_size_mb() -> u64 {
+    100
+}
+
+fn default_log_rotate_keep_files() -> usize {
+    10
+}
+
+fn default_log_compress() -> bool {
+    true
+}
+
+fn default_log_stdout() -> bool {
+    true
 }
 
 impl ArkimeConfig {

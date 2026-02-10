@@ -1,8 +1,10 @@
 use clap::Command;
 
 mod capture;
+mod cluster;
 mod cmd;
 mod conf;
+mod logging;
 pub mod core;
 mod filter;
 mod pcap;
@@ -16,6 +18,7 @@ mod layer;
 fn main() {
     let root_cmd = Command::new("arkime-rust").subcommands([
         cmd::capture::capture(),
+        cmd::cluster::cluster(),
         cmd::config::config(),
         cmd::reload::reload(),
         cmd::stop::stop(),
@@ -29,6 +32,17 @@ fn main() {
             let path = sub.get_one::<String>("config").map(String::as_str);
             cmd::capture::start_capture(path);
         }
+        Some(("cluster", sub)) => match sub.subcommand() {
+            Some(("run", s)) => {
+                let path = s.get_one::<String>("config").map(String::as_str);
+                cmd::cluster::run_cluster(path);
+            }
+            Some(("dump", s)) => {
+                let path = s.get_one::<String>("config").map(String::as_str);
+                cmd::cluster::dump_cluster(path);
+            }
+            _ => println!("unknown cluster subcommand"),
+        },
         Some(("config", sub)) => {
             let path = sub.get_one::<String>("config").map(String::as_str);
             cmd::config::show_config(path);

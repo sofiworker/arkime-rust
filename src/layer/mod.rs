@@ -1,14 +1,9 @@
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::net::IpAddr;
+use serde_json::Value;
 
-use pnet::packet::arp::ArpPacket;
-use pnet::packet::ethernet::{EtherType, EthernetPacket};
-use pnet::packet::ip::IpNextHeaderProtocol;
-use pnet::packet::ipv4::Ipv4Packet;
-use pnet::packet::ipv6::Ipv6Packet;
-use pnet::packet::tcp::TcpPacket;
-use pnet::packet::udp::UdpPacket;
-use pnet::packet::vlan::VlanPacket;
-use pnet::packet::Packet;
+pub mod plugins;
+pub mod engine;
+pub mod builtin;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum NetworkInfo {
@@ -39,108 +34,19 @@ pub struct ParsedPacket {
     pub network: NetworkInfo,
     pub ethertype: u16,
     pub payload_len: usize,
+    pub extras: Vec<LayerExtra>,
+}
+
+#[derive(Debug, Clone)]
+pub struct LayerExtra {
+    pub plugin: String,
+    pub data: Value,
 }
 
 pub fn parse_packet(frame: &[u8]) -> Option<ParsedPacket> {
-    let eth = EthernetPacket::new(frame)?;
-
-    match eth.get_ethertype() {
-        EtherType(0x8100) | EtherType(0x88A8) => {
-            let vlan = VlanPacket::new(eth.payload())?;
-            parse_l3(
-                vlan.payload(),
-                vlan.get_ethertype(),
-                Some(vlan.get_vlan_identifier()),
-            )
-        }
-        other => parse_l3(eth.payload(), other, None),
-    }
-}
-
-fn parse_l3(payload: &[u8], ethertype: EtherType, vlan_id: Option<u16>) -> Option<ParsedPacket> {
-    match ethertype.0 {
-        0x0800 => parse_ipv4(payload, ethertype, vlan_id),
-        0x86DD => parse_ipv6(payload, ethertype, vlan_id),
-        0x0806 => parse_arp(payload, ethertype),
-        _ => Some(ParsedPacket {
-            flow: None,
-            network: NetworkInfo::Other,
-            ethertype: ethertype.0,
-            payload_len: payload.len(),
-        }),
-    }
-}
-
-fn parse_ipv4(payload: &[u8], ethertype: EtherType, vlan_id: Option<u16>) -> Option<ParsedPacket> {
-    let ipv4 = Ipv4Packet::new(payload)?;
-    let src = IpAddr::V4(Ipv4Addr::from(ipv4.get_source().octets()));
-    let dst = IpAddr::V4(Ipv4Addr::from(ipv4.get_destination().octets()));
-    let transport = parse_l4(ipv4.payload(), ipv4.get_next_level_protocol());
-
-    Some(ParsedPacket {
-        flow: Some(FlowKey {
-            src,
-            dst,
-            transport,
-            vlan_id,
-        }),
-        network: NetworkInfo::Ipv4,
-        ethertype: ethertype.0,
-        payload_len: payload.len(),
-    })
-}
-
-fn parse_ipv6(payload: &[u8], ethertype: EtherType, vlan_id: Option<u16>) -> Option<ParsedPacket> {
-    let ipv6 = Ipv6Packet::new(payload)?;
-    let src = IpAddr::V6(Ipv6Addr::from(ipv6.get_source().octets()));
-    let dst = IpAddr::V6(Ipv6Addr::from(ipv6.get_destination().octets()));
-    let transport = parse_l4(ipv6.payload(), ipv6.get_next_header());
-
-    Some(ParsedPacket {
-        flow: Some(FlowKey {
-            src,
-            dst,
-            transport,
-            vlan_id,
-        }),
-        network: NetworkInfo::Ipv6,
-        ethertype: ethertype.0,
-        payload_len: payload.len(),
-    })
-}
-
-fn parse_arp(payload: &[u8], ethertype: EtherType) -> Option<ParsedPacket> {
-    let _arp = ArpPacket::new(payload)?;
-    Some(ParsedPacket {
-        flow: None,
-        network: NetworkInfo::Arp,
-        ethertype: ethertype.0,
-        payload_len: payload.len(),
-    })
-}
-
-fn parse_l4(payload: &[u8], protocol: IpNextHeaderProtocol) -> TransportInfo {
-    match protocol.0 {
-        6 => {
-            if let Some(tcp) = TcpPacket::new(payload) {
-                return TransportInfo::Tcp {
-                    src_port: tcp.get_source(),
-                    dst_port: tcp.get_destination(),
-                };
-            }
-            TransportInfo::Other
-        }
-        17 => {
-            if let Some(udp) = UdpPacket::new(payload) {
-                return TransportInfo::Udp {
-                    src_port: udp.get_source(),
-                    dst_port: udp.get_destination(),
-                };
-            }
-            TransportInfo::Other
-        }
-        _ => TransportInfo::Other,
-    }
+    // Legacy convenience entrypoint (no dynamic plugins).
+    // Capture runtime uses `engine::LayerEngine` so the layer stack is Arkime-like and extensible.
+    engine::LayerEngine::default().parse(frame)
 }
 
 #[cfg(test)]
@@ -179,5 +85,25 @@ mod tests {
         let parsed = parse_packet(&frame).expect("must parse");
         assert_eq!(parsed.network, NetworkInfo::Arp);
         assert!(parsed.flow.is_none());
+    }
+
+    #[test]
+    fn parse_ipv4_icmp_echo_request() {
+        // Ethernet(14) + IPv4(20) + ICMP(8)
+        // IPv4 header checksum is set to 0 (we don't validate checksums in parser).
+        let frame: [u8; 42] = [
+            // eth dst/src/type
+            0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x08,
+            0x00,
+            // ipv4 ver/ihl,tos,len
+            0x45, 0x00, 0x00, 0x1c, 0x00, 0x01, 0x00, 0x00, 0x40, 0x01, 0x00, 0x00, 10, 0,
+            0, 1, 10, 0, 0, 2,
+            // icmp type=8 code=0 csum=0 id=0x1234 seq=0x0001
+            0x08, 0x00, 0x00, 0x00, 0x12, 0x34, 0x00, 0x01,
+        ];
+
+        let parsed = parse_packet(&frame).expect("must parse");
+        assert_eq!(parsed.network, NetworkInfo::Ipv4);
+        assert!(parsed.extras.iter().any(|e| e.plugin == "icmp"));
     }
 }

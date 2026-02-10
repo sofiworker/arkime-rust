@@ -28,7 +28,21 @@ impl InterfaceHandler {
             .collect()
     }
 
+    /// Like `get_interfaces()`, but treats "link down" as absent so callers can stop capture.
+    pub fn get_up_interfaces(&self) -> Vec<NetworkInterface> {
+        self.get_interfaces()
+            .into_iter()
+            .filter(Self::is_interface_up)
+            .collect()
+    }
+
     fn matches_patterns(&self, iface_name: &str) -> bool {
+        // When dynamic discovery is enabled, it's valid for link_patterns to be empty,
+        // meaning "match everything".
+        if self.patterns.is_empty() {
+            return true;
+        }
+
         self.patterns.iter().any(|pattern| {
             if pattern == "*" {
                 return true;
@@ -45,6 +59,26 @@ impl InterfaceHandler {
         }
 
         explicit_interfaces.contains(name)
+    }
+
+    fn is_interface_up(iface: &NetworkInterface) -> bool {
+        // Best-effort cross-platform: on some platforms pnet may not populate flags.
+        // Treat "unknown" as up to avoid accidentally disabling capture.
+        if iface.flags == 0 {
+            return true;
+        }
+
+        #[cfg(unix)]
+        {
+            (iface.flags & (libc::IFF_UP as u32)) != 0
+        }
+
+        #[cfg(not(unix))]
+        {
+            // Windows/other: flags meanings aren't consistent (and libc constants may not exist).
+            // Keep capturing and rely on dynamic interface disappearance for removal.
+            true
+        }
     }
 }
 
@@ -122,6 +156,13 @@ mod tests {
     }
 
     #[test]
+    fn empty_patterns_match_all() {
+        let handler = InterfaceHandler::new(vec![]);
+        assert!(handler.matches_patterns("eth0"));
+        assert!(handler.matches_patterns("lo"));
+    }
+
+    #[test]
     fn interface_state_diff_reports_add_and_remove() {
         let mut state = InterfaceState::default();
 
@@ -136,4 +177,3 @@ mod tests {
         assert_eq!(delta.removed, vec!["eth0".to_string()]);
     }
 }
-
